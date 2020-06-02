@@ -1,0 +1,7 @@
+{
+  "deadline_days": 90,
+  "bundles": [
+    "s3://aptible-ssl-certificates/wildcard.aptible.in-bundle.crt",
+    "s3://aptible-ssl-certificates/wildcard.on-aptible.com-bundle.crt"
+  ]
+}
