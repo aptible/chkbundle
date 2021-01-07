@@ -36,11 +36,13 @@ type Config struct {
 func configure(configFile string, debug bool) (Config, error) {
 	// Default to info level output
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	// Use nicer human output
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+
 	if debug {
 		// Output debug level messages and everything in a human-friendly format
 		// and allow logging from cfssl revocation check to output
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 	} else {
 		// Discard output from cfssl logger
 		stdlog.SetOutput(ioutil.Discard)
@@ -130,35 +132,12 @@ func checkCerts(raw []byte, config Config) []error {
 		certs = append(certs, *cert)
 	}
 
-	now := time.Now()
-	// How many days before expiration to begin failing
-	softDeadline := now.AddDate(0, 0, int(config.DeadlineDays))
-	// Check all certificates expirations
 	for _, cert := range certs {
-		if cert.NotAfter.Before(softDeadline) {
-			errs = append(errs, ErrViolatesDeadline)
-		}
-		if cert.NotAfter.Before(now) {
-			errs = append(errs, ErrExpired)
-		}
-
-		revoked, ok := revoke.VerifyCertificate(&cert)
-		if !ok {
-			log.Error().Str("subject", cert.Subject.CommonName).Msg("failed to verify revocation status, possibly retry")
-			// We don't log this as a failure as some certificate may not include information needed to check on
-			// revocation status, e.g., Digicert root certificate
-		} else if revoked {
-			errs = append(errs, ErrRevoked)
-		}
-		if len(errs) == 0 {
-			log.Info().Str("subject", cert.Subject.CommonName).Time("expiration", cert.NotAfter).Msg("certificate not expired or revoked")
-		} else {
-			log.Error().Str("subject", cert.Subject.CommonName).Time("expiration", cert.NotAfter).Msg("certificate expired or revoked")
-		}
+		errs = append(errs, validateCert(cert, config)...)
 	}
 
 	if len(certs) == 3 {
-		log.Info().Msg("found three certificates, attempting to verify proper chain")
+		log.Debug().Msg("found three certificates, attempting to verify proper chain")
 		leaf := certs[0]
 		intermediate := certs[1]
 		root := certs[2]
@@ -181,14 +160,51 @@ func checkCerts(raw []byte, config Config) []error {
 		}
 
 		if _, err := leaf.Verify(opts); err != nil {
+			log.Error().Str("leaf certificate", leaf.Subject.CommonName).Msgf("could not verify leaf with rest of chain: %v", err)
 			e := fmt.Errorf("failed to verify certificate using bundled chain: %w", err)
 			errs = append(errs, e)
 		}
 
 		if leaf.NotAfter.After(intermediate.NotAfter) || leaf.NotAfter.After(root.NotAfter) {
+			log.Error().Str("leaf certificate", leaf.Subject.CommonName).Msg("leaf expires before a parent certificate")
 			errs = append(errs, ErrParentExpiresFirst)
 		}
+	} else {
+		log.Warn().Msg("fewer than 3 certificates found, skipping chain validation")
 	}
+
+	return errs
+}
+
+func validateCert(cert x509.Certificate, config Config) []error {
+	var errs []error
+
+	now := time.Now()
+	// How many days before expiration to begin failing
+	softDeadline := now.AddDate(0, 0, int(config.DeadlineDays))
+	// Check all certificates expirations
+	if cert.NotAfter.Before(softDeadline) {
+		log.Error().Str("subject", cert.Subject.CommonName).Time("expiration", cert.NotAfter).Msgf("violates soft deadline of %d days", config.DeadlineDays)
+		errs = append(errs, ErrViolatesDeadline)
+	}
+	if cert.NotAfter.Before(now) {
+		log.Error().Str("subject", cert.Subject.CommonName).Time("expiration", cert.NotAfter).Msg("expired")
+		errs = append(errs, ErrExpired)
+	}
+
+	revoked, ok := revoke.VerifyCertificate(&cert)
+	if !ok {
+		log.Warn().Str("subject", cert.Subject.CommonName).Msg("failed to verify revocation status, possibly retry")
+		// We don't log this as a failure as some certificate may not include information needed to check on
+		// revocation status, e.g., Digicert root certificate
+	} else if revoked {
+		log.Error().Str("subject", cert.Subject.CommonName).Msg("revoked")
+		errs = append(errs, ErrRevoked)
+	}
+	if len(errs) == 0 {
+		log.Debug().Str("subject", cert.Subject.CommonName).Time("expiration", cert.NotAfter).Msg("certificate not expired or revoked")
+	}
+
 	return errs
 }
 
@@ -214,9 +230,6 @@ func main() {
 		errs := checkCerts(bytes, config)
 		if len(errs) != 0 {
 			ok = false
-			for _, e := range errs {
-				log.Error().Str("bundle", bundle).Err(e).Send()
-			}
 		}
 	}
 
