@@ -7,13 +7,15 @@ on:
     branches:
       - main
       - master
+  release:
+    types: [published]
 
 env:
   GOFLAGS: "-mod=vendor"
 
 jobs:
-  test:
-    name: Test
+  test-and-publish:
+    name: Test and Publish
     runs-on: ubuntu-20.04
     strategy:
       fail-fast: false
@@ -43,7 +45,7 @@ jobs:
           go build && mv chkbundle "chkbundle-${GOOS}-${GOARCH}"
           sha1sum chkbundle-* > chkbundle.sum
 
-      - name: Deploy
+      - name: Publish artifact
         if: github.event_name == 'release'
         uses: actions/upload-artifact@v4
         with:
