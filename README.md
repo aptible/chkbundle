@@ -6,6 +6,8 @@ Check certificate bundle for validity
 
 ## Usage
 
+Required and used by https://github.com/aptible/aws-crons
+
 ### Configuration
 
 ## Contributing
