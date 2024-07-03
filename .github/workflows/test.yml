@@ -17,8 +17,6 @@ jobs:
   test-and-publish:
     name: Test and Publish
     runs-on: ubuntu-20.04
-    strategy:
-      fail-fast: false
     steps:
       - name: Check out code
         uses: actions/checkout@v4
