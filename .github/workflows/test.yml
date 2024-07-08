@@ -43,10 +43,10 @@ jobs:
           go build && mv chkbundle "chkbundle-${GOOS}-${GOARCH}"
           sha1sum chkbundle-* > chkbundle.sum
 
-      - name: Publish artifact
+      - name: Publish files to release
         if: github.event_name == 'release'
-        uses: actions/upload-artifact@v4
-        with:
-          path: |
-            chkbundle-*
-            chkbundle.sum
+        env:
+          GITHUB_TOKEN: ${{ github.TOKEN }}
+        run: |
+          gh release upload ${{github.event.release.tag_name}} chkbundle-*
+          gh release upload ${{github.event.release.tag_name}} chkbundle.sum
