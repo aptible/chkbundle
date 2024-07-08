@@ -1,0 +1,52 @@
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+  push:
+    branches:
+      - main
+      - master
+  release:
+    types: [published]
+
+env:
+  GOFLAGS: "-mod=vendor"
+
+jobs:
+  test-and-publish:
+    name: Test and Publish
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.14'
+
+      - name: Setup
+        run: go mod vendor
+
+      - name: Test
+        run: |
+          make fmt
+          git diff --exit-code
+          make test
+
+      - name: Build
+        run: |
+          mkdir -p dist
+          export GOOS="linux"
+          export CGO_ENABLED=0
+          export GOARCH="amd64"
+          go build && mv chkbundle "chkbundle-${GOOS}-${GOARCH}"
+          sha1sum chkbundle-* > chkbundle.sum
+
+      - name: Publish artifact
+        if: github.event_name == 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          path: |
+            chkbundle-*
+            chkbundle.sum
